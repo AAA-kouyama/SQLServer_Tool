@@ -1,0 +1,64 @@
+-- =============================================
+-- Author:		AAA_kouyama
+-- Create date: 2024/05/22
+-- Description:	効率化されるインデックス候補をすべてのデータベースで調べるツール
+-- =============================================
+CREATE PROCEDURE [dbo].[Tool_IndexCandidateInvestigation]
+AS
+BEGIN
+    BEGIN TRY
+        -- データベース名を格納する変数を作成
+        DECLARE @DBName NVARCHAR(128)
+        DECLARE @SQL NVARCHAR(MAX)
+
+        -- データベース名を取得するカーソルを作成
+        DECLARE db_cursor CURSOR FOR
+        SELECT name FROM master.sys.databases
+        WHERE name NOT IN ('master', 'tempdb', 'model', 'msdb') -- システムデータベースを除外
+		AND state_desc = 'ONLINE' -- オフラインのデータベースを除外
+        OPEN db_cursor
+        FETCH NEXT FROM db_cursor INTO @DBName
+
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            SET @SQL = 'USE [' + @DBName + ']; ' +
+			            'SELECT ' + 
+						' gs.avg_user_impact AS [予測されるクエリパフォーマンス改善率], ' +
+                        ' gs.last_user_seek AS [最後にシークした時間], ' +
+                        ' id.statement AS [テーブル名] , ' +
+                        ' id.equality_columns AS [等値述語に使用できる列], ' +
+                        ' id.inequality_columns AS [不等値述語に使用できる列] , ' +
+                        ' id.included_columns AS [包括列として必要な列], ' +
+                        ' gs.unique_compiles AS [コンパイルおよび再コンパイルの数], ' +
+                        ' gs.user_seeks AS [クエリによって発生したシーク数] ' +
+                        'FROM  sys.dm_db_missing_index_group_stats AS gs ' +
+                        'INNER JOIN sys.dm_db_missing_index_groups AS ig ' + 
+			            ' ON gs.group_handle = ig.index_group_handle ' +
+                        'INNER JOIN sys.dm_db_missing_index_details AS id ' +
+                        ' ON ig.index_handle = id.index_handle ' +
+                        'WHERE id.[database_id] =DB_ID() Order By gs.last_user_seek ASC'
+
+            EXEC sp_executesql @SQL
+
+            FETCH NEXT FROM db_cursor INTO @DBName
+        END
+
+        CLOSE db_cursor
+        DEALLOCATE db_cursor
+    END TRY
+    BEGIN CATCH
+		DECLARE @ErrorMessage NVARCHAR(MAX), @ErrorSubject NVARCHAR(100)
+		SELECT 
+			@ErrorMessage = ERROR_MESSAGE(),
+			@ErrorSubject = 'エラーが発生しました: ' + ERROR_PROCEDURE()
+
+		EXEC msdb.dbo.sp_send_dbmail
+			@profile_name = 'AAA',
+			@recipients = 'kouyama-tsuy@aeonpeople.biz',
+			@body = @ErrorMessage,
+			@subject = @ErrorSubject
+
+			RAISERROR('失敗しました。',1,1)
+			RETURN -1
+    END CATCH
+END

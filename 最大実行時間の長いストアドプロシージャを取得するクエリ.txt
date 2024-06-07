@@ -1,0 +1,40 @@
+SELECT TOP(100)
+    o.[name] AS [ストアドプロシージャ名]
+    , p.[bucketid]
+    , ps.[execution_count] AS [実行回数]
+    , ps.[max_elapsed_time] AS [最大実行時間]
+    , ps.[total_elapsed_time] AS [合計実行時間]
+    , ps.[max_physical_reads] AS [最大物理読み込み]
+    , ps.[max_logical_reads] AS [最大論理読み込み]
+    -- , 他色々
+    , qp.[query_plan] AS [実行計画]
+FROM
+    sys.dm_exec_cached_plans AS p
+    INNER JOIN sys.dm_exec_procedure_stats AS ps
+        ON p.[plan_handle] = ps.[plan_handle]
+    CROSS APPLY sys.dm_exec_query_plan(p.[plan_handle]) AS qp
+    LEFT OUTER JOIN sys.objects AS o
+        ON o.[object_id] = qp.[objectid]
+ORDER BY
+    ps.[max_elapsed_time] DESC
+    
+
+時間がかかっているストアドプロシージャを特定します
+最大実行時間が長いものが改善対象ですが、
+合計実行時間が多いものは実行回数が多く実行時間の累積で考えた場合に改善対象になる可能性があります
+
+
+*****時間帯指定バージョン******
+SELECT 
+    DB_NAME(ps.database_id) AS 'Database Name',
+    OBJECT_NAME(ps.object_id, ps.database_id) AS 'Procedure Name',
+    ps.execution_count AS 'Execution Count',
+    ps.total_elapsed_time/1000000 AS 'Total Elapsed Time (in S)',
+    ps.last_execution_time AS 'Last Execution Time'
+FROM 
+    sys.dm_exec_procedure_stats ps
+WHERE 
+    ps.last_execution_time BETWEEN '2024-05-10T00:00:00' AND '2024-05-10T23:59:59'
+ORDER BY 
+    ps.total_elapsed_time DESC;
+

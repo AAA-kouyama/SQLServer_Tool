@@ -1,0 +1,77 @@
+-- =============================================
+-- Author:		AAA_kouyama
+-- Create date: 2024/05/16
+-- Description:	インデックス再構築用ツール(全部データベース対象)
+-- =============================================
+CREATE PROCEDURE [dbo].[Tool_AllIndexRebuild] 
+AS
+BEGIN
+    BEGIN TRY
+        -- データベース名を格納する変数を作成
+        DECLARE @DBName NVARCHAR(128)
+        DECLARE @SQL NVARCHAR(MAX)
+
+        -- データベース名を取得するカーソルを作成
+        DECLARE db_cursor CURSOR FOR
+        SELECT name FROM master.sys.databases
+        WHERE name NOT IN ('master', 'tempdb', 'model', 'msdb') -- システムデータベースを除外
+		AND state_desc = 'ONLINE' -- オフラインのデータベースを除外
+        OPEN db_cursor
+        FETCH NEXT FROM db_cursor INTO @DBName
+
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            -- 動的SQLを作成して各データベースのフラグメンテーションが50%以上のインデックスを再構築
+            SET @SQL = 'USE [' + @DBName + ']; ' +
+                        'DECLARE @Index_Name NVARCHAR(MAX); ' +
+                        'DECLARE @Table_Name NVARCHAR(MAX); ' +
+						'DECLARE @Subject_DB NVARCHAR(MAX); ' +
+						'SET @Subject_DB =''' + @DBName + ' REBUILD''; ' +
+                        'DECLARE @Rebuilded_Indexs NVARCHAR(MAX) = ''''; ' +
+                        'DECLARE Index_Target CURSOR FOR ' +
+                        'SELECT OBJECT_NAME(IDXPS.object_id), IDX.name ' +
+                        'FROM sys.dm_db_index_physical_stats (DB_ID(),null,null,null,null) AS IDXPS ' +
+                        'LEFT OUTER JOIN  sys.indexes AS IDX ' +
+                        'ON IDXPS.object_id = IDX.object_id  AND IDXPS.index_id = IDX.index_id ' +
+                        'WHERE IDX.index_id > 0 AND IDXPS.avg_fragmentation_in_percent > 50; ' +
+                        'OPEN Index_Target; ' +
+                        'FETCH NEXT FROM Index_Target INTO @Table_Name, @Index_Name; ' +
+                        'WHILE @@FETCH_STATUS = 0 ' +
+                        'BEGIN ' +
+                        '    PRINT ''Rebuilding Index: '' + @Index_Name + '' on table: '' + @Table_Name; ' +
+                        '    EXEC(''ALTER INDEX '' + @Index_Name + '' ON '' + @Table_Name + '' REBUILD''); ' +
+                        '    SET @Rebuilded_Indexs = @Rebuilded_Indexs + @Index_Name + '',''; ' +
+                        '    FETCH NEXT FROM Index_Target INTO @Table_Name, @Index_Name; ' +
+                        'END; ' +
+                        'CLOSE Index_Target; ' +
+                        'DEALLOCATE Index_Target; ' +
+                        'EXEC msdb.dbo.sp_send_dbmail ' +
+                        '@profile_name = ''AAA'', ' +
+                        '@recipients = ''kouyama-tsuy@aeonpeople.biz'', ' +
+                        '@body = @Rebuilded_Indexs, ' +
+                        '@subject = @Subject_DB ;'
+
+            EXEC sp_executesql @SQL
+
+            FETCH NEXT FROM db_cursor INTO @DBName
+        END
+
+        CLOSE db_cursor
+        DEALLOCATE db_cursor
+    END TRY
+    BEGIN CATCH
+    DECLARE @ErrorMessage NVARCHAR(MAX), @ErrorSubject NVARCHAR(100)
+    SELECT 
+        @ErrorMessage = ERROR_MESSAGE(),
+        @ErrorSubject = 'エラーが発生しました: ' + ERROR_PROCEDURE()
+
+    EXEC msdb.dbo.sp_send_dbmail
+        @profile_name = 'AAA',
+        @recipients = 'kouyama-tsuy@aeonpeople.biz',
+        @body = @ErrorMessage,
+        @subject = @ErrorSubject
+
+        RAISERROR('失敗しました。',1,1)
+        RETURN -1
+    END CATCH
+END

@@ -1,0 +1,59 @@
+-- DMVを見るための権限を持っているか確認するSQL
+-- エラーでなければ、VIEW SERVER STATE権限を持っている
+select top 10 * from sys.dm_tran_locks
+
+-- エラーでなければ、VIEW DATABASE STATE権限を持っている
+select top 10 * from sys.dm_db_partition_stats
+
+--インデックスの断片化をチェックする
+    DECLARE @DB_ID int, @OBJECT_ID int
+    set @DB_ID = DB_ID('db名')
+    set @OBJECT_ID = OBJECT_ID('table名')
+
+    --avg_fragmentation_in_percent が断片化率
+    SELECT
+        *
+    FROM sys.dm_db_index_physical_stats (@DB_ID, @Object_ID, NULL , NULL, 'DETAILED') as A
+    JOIN sys.objects as B on A.object_id = B.object_id
+
+--クエリキャッシュの利用状況をチェック
+    SELECT TOP 100 *
+    FROM sys.dm_exec_cached_plans
+    CROSS APPLY sys.dm_exec_sql_text(plan_handle) ss
+    --cross apply sys.dm_exec_query_plan(plan_handle) -- プランもみたいときはコメント外す
+    CROSS APPLY sys.dm_exec_plan_attributes(plan_handle) sb -- 細かいメタデータ見なくていいときはコメントアウト
+    WHERE TEXT LIKE '%ストアド名など%' -- ここで絞込み
+        AND ss.dbid = DB_ID('DB名') -- DBID指定
+
+--現在実行中のクエリ一覧を取得
+    SELECT session_id
+        ,TEXT
+    FROM sys.dm_exec_requests s1
+    CROSS APPLY sys.dm_exec_sql_text(sql_handle) AS s2
+    ORDER BY TEXT
+    
+--現在取得されているロック一覧を取得
+    SELECT *
+    FROM sys.dm_tran_locks
+    WHERE resource_database_id = DB_ID('db名')
+    -- AND request_mode <> 'S' -- 共有ロックだけ除外したりできる
+    
+
+--ブロッキング検出
+    SELECT db.NAME DBName
+        ,tl.request_session_id
+        ,wt.blocking_session_id
+        ,OBJECT_NAME(p.OBJECT_ID) BlockedObjectName
+        ,tl.resource_type
+        ,h1.TEXT AS RequestingText
+        ,h2.TEXT AS BlockingTest
+        ,tl.request_mode
+    FROM sys.dm_tran_locks AS tl
+    INNER JOIN sys.databases db ON db.database_id = tl.resource_database_id
+    INNER JOIN sys.dm_os_waiting_tasks AS wt ON tl.lock_owner_address = wt.resource_address
+    INNER JOIN sys.partitions AS p ON p.hobt_id = tl.resource_associated_entity_id
+    INNER JOIN sys.dm_exec_connections ec1 ON ec1.session_id = tl.request_session_id
+    INNER JOIN sys.dm_exec_connections ec2 ON ec2.session_id = wt.blocking_session_id
+    CROSS APPLY sys.dm_exec_sql_text(ec1.most_recent_sql_handle) AS h1
+    CROSS APPLY sys.dm_exec_sql_text(ec2.most_recent_sql_handle) AS h2
+

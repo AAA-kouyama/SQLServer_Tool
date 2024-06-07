@@ -1,0 +1,24 @@
+SELECT [平均実行時間(msec)] = total_elapsed_time / execution_count / 1000.00,
+       [平均CPU時間(msec)] = total_worker_time / execution_count / 1000.00,
+       [平均物理I/O数] = total_physical_reads / execution_count,
+       [平均論理I/O数] = (total_logical_reads + total_logical_writes)/ execution_count,
+       [SQL文] = SUBSTRING(est.text, (statement_start_offset / 2) + 1, 
+       ((CASE statement_end_offset
+         WHEN -1 THEN DATALENGTH(est.text)
+         ELSE statement_end_offset
+         END - statement_start_offset) / 2) + 1),
+         DB_NAME(est.dbid) AS DatabaseName
+FROM sys.dm_exec_query_stats
+CROSS APPLY sys.dm_exec_sql_text(sql_handle) AS est
+where DB_NAME(est.dbid) is not null and DB_NAME(est.dbid) <> 'msdb'
+order by [平均実行時間(msec)] desc
+
+※SQLサーバー自体が内部で実行しているSQLも拾ってしまいます「msdb」は除外してOKです
+
+DELETE INSERT UPDATE 文は改修の余地が殆どないかも知れませんが、
+表領域の拡張サイズの見直しを行ってみてください
+
+FETCHはループ回数が多い場合に現れてきますのでループ処理部分の見直しを行ってください
+
+SELECT文は不適切なSQL結合やINDEX不足など改善の余地があるSQLになっていますので見直してください
+

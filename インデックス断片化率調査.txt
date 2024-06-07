@@ -1,0 +1,35 @@
+SELECT
+    S.name AS 'スキーマ名',
+    O.name AS 'テーブル名',
+    IDX.name AS 'インデックス名',
+    IDXPS.avg_fragmentation_in_percent AS '断片化率',
+    O.modify_date AS '更新日時'
+FROM sys.dm_db_index_physical_stats (DB_ID(),null,null,null,null) AS IDXPS
+LEFT OUTER JOIN  sys.objects AS O
+    ON IDXPS.object_id = O.object_id
+LEFT OUTER JOIN  sys.schemas AS S
+    ON O.schema_id = S.schema_id
+LEFT OUTER JOIN  sys.indexes AS IDX
+    ON IDXPS.object_id = IDX.object_id  AND
+       IDXPS.index_id = IDX.index_id
+WHERE
+    O.type = 'U' AND
+    IDX.index_id > 0 
+ORDER BY
+    IDXPS.avg_fragmentation_in_percent DESC
+
+
+
+最大のパフォーマンスを得るには、avg_fragmentation_in_percent の値をできるだけ 0 に近くする必要があります。 
+ただし、0 ～ 10% の値は許容範囲です。 
+再構築、再構成、再作成など、断片化を解消するためのさまざまな手段を使用することによって、この値を下げることができます。 
+インデックスの断片化の程度を分析する方法の詳細については、「インデックスの 再構成と再構築」を参照してください。
+
+インデックスの再構築方法について
+https://learn.microsoft.com/ja-jp/sql/relational-databases/indexes/reorganize-and-rebuild-indexes?view=sql-server-ver16
+
+例　再構成
+ALTER INDEX PK_T_PLAN on dbo.T_PLAN REORGANIZE
+
+例　再構築
+ALTER INDEX PK_T_PLAN on dbo.T_PLAN REBUILD

@@ -1,0 +1,16 @@
+SELECT [スキーマ名] = s.name, 
+       [テーブル名] = t.name,
+       [インデックス名] = i.name, 
+       [作成日] = t.create_date, 
+       [修正日] = t.modify_date
+FROM sys.indexes i 
+INNER JOIN sys.tables t
+    ON i.object_id = t.object_id 
+INNER JOIN sys.schemas s 
+    ON t.schema_id = s.schema_id 
+WHERE i.index_id NOT IN ( SELECT ius.index_id
+                          FROM sys.dm_db_index_usage_stats AS ius
+                          WHERE ius.object_id = i.object_id
+                              AND i.index_id = ius.index_id 
+                        ) 
+ORDER BY [スキーマ名],[テーブル名],[インデックス名]

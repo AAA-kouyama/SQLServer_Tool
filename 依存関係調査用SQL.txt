@@ -1,0 +1,65 @@
+--referencing_object参照元
+--referenced_object参照先
+
+
+--SQLServerオブジェクト依存関係を明示するSQL
+SELECT
+  CASE 
+    WHEN DB_ID(OBJECT_SCHEMA_NAME(referencing_id)) IS NULL THEN DB_NAME()
+    ELSE DB_NAME(DB_ID(OBJECT_SCHEMA_NAME(referencing_id)))
+  END AS 参照元_database_name,
+  OBJECT_NAME(referencing_id) AS 参照元_object,
+  o.type_desc AS 参照元_object_type,
+  CASE 
+    WHEN OBJECT_NAME(referenced_id) IS NULL THEN referenced_entity_name
+    ELSE OBJECT_NAME(referenced_id)
+  END as 参照先_object,
+  o2.type_desc AS 参照先_object_type,
+  CASE 
+    WHEN referenced_server_name IS NULL THEN @@SERVERNAME
+    ELSE referenced_server_name
+  END as 参照先_server_name,
+  CASE 
+    WHEN referenced_database_name IS NULL THEN DB_NAME()
+    ELSE referenced_database_name
+  END as 参照先_database_name,
+  CASE 
+    WHEN referenced_schema_name IS NULL THEN SCHEMA_NAME()
+    ELSE referenced_schema_name
+  END as 参照先_schema_name
+FROM sys.sql_expression_dependencies sed
+LEFT JOIN sys.objects o ON sed.referencing_id = o.object_id
+LEFT JOIN sys.objects o2 ON sed.referenced_id = o2.object_id;
+
+
+--Oracleオブジェクト依存関係を明示するSQL　調整中！
+SELECT 
+  (CASE 
+    WHEN referenced_owner IS NULL THEN USER 
+    ELSE referenced_owner 
+  END) AS 参照元_database_name,
+  name AS 参照元_object,
+  type AS 参照元_object_type,
+  (CASE 
+    WHEN referenced_name IS NULL THEN referenced_link_name 
+    ELSE referenced_name 
+  END) AS 参照先_object,
+  referenced_type AS 参照先_object_type,
+  (CASE 
+    WHEN referenced_link_name IS NULL THEN (SELECT UTL_INADDR.get_host_name FROM dual)
+    ELSE referenced_link_name 
+  END) AS 参照先_server_name,
+  (CASE 
+    WHEN referenced_owner IS NULL THEN USER 
+    ELSE referenced_owner 
+  END) AS 参照先_database_name,
+  (CASE 
+    WHEN referenced_owner IS NULL THEN (SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM dual)
+    ELSE referenced_owner 
+  END) AS 参照先_schema_name
+FROM all_dependencies
+WHERE referenced_owner IN ('SIENORAC');
+
+※ORADBSV4は実行できますが、sienhonb2010はネットワーク接続権限が設定されていないので接続できません
+↑system/oraclec　で接続して実行できました
+

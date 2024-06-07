@@ -1,0 +1,5 @@
+SELECT DB_NAME(sP.dbid) AS the_database
+  , COUNT(sP.spid) AS total_database_connections
+FROM sys.sysprocesses sP
+GROUP BY DB_NAME(sP.dbid)
+ORDER BY 1;

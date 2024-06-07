@@ -1,0 +1,70 @@
+declare @start_time datetime, @end_time datetime
+set @start_time = '2020-04-14 20:04'
+set @end_time = '2020-04-14 20:06'
+ 
+declare @total_reads bigint
+ 
+set nocount on
+ 
+--session_idごとの物理読み取りページ数推移
+select
+    (a.reads - b.reads) as reads_diff
+    ,a.*
+from
+(
+    select
+    row_number() over(partition by session_id, start_time order by collect_date) as rownum
+    ,* from dm_exec_requests_dump with(nolock)
+    where start_time between @start_time and @end_time
+) a
+join
+(
+    select
+    row_number() over(partition by session_id, start_time order by collect_date) as rownum
+    ,* from dm_exec_requests_dump with(nolock)
+    where start_time between @start_time and @end_time
+) b on a.session_id = b.session_id and a.start_time = b.start_time and a.rownum-1 = b.rownum
+where (a.reads - b.reads) > 0
+order by a.session_id, a.collect_date
+ 
+--総物理読み取り数を取得
+select
+    @total_reads = sum((a.reads - b.reads))
+from
+(
+    select
+    row_number() over(partition by session_id, start_time order by collect_date) as rownum
+    ,* from dm_exec_requests_dump with(nolock)
+    where start_time between @start_time and @end_time
+) a
+join
+(
+    select
+    row_number() over(partition by session_id, start_time order by collect_date) as rownum
+    ,* from dm_exec_requests_dump with(nolock)
+    where start_time between @start_time and @end_time
+) b on a.session_id = b.session_id and a.start_time = b.start_time and a.rownum-1 = b.rownum
+where (a.reads - b.reads) > 0
+ 
+--総論理読み取り数が多い順にリクエストを並べる
+select
+    a.session_id, a.start_time,
+    sum((a.reads - b.reads)) as reads_diff,
+    sum((a.reads - b.reads)) * 100 / @total_reads as percentage
+from
+(
+    select
+    row_number() over(partition by session_id, start_time order by collect_date) as rownum
+    ,* from dm_exec_requests_dump with(nolock)
+    where start_time between @start_time and @end_time
+) a
+join
+(
+    select
+    row_number() over(partition by session_id, start_time order by collect_date) as rownum
+    ,* from dm_exec_requests_dump with(nolock)
+    where start_time between @start_time and @end_time
+) b on a.session_id = b.session_id and a.start_time = b.start_time and a.rownum-1 = b.rownum
+where (a.reads - b.reads) > 0
+group by a.session_id, a.start_time
+order by sum((a.reads - b.reads)) desc

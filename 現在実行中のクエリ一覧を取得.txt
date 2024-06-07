@@ -1,0 +1,4 @@
+SELECT session_id, TEXT
+FROM sys.dm_exec_requests s1
+CROSS APPLY sys.dm_exec_sql_text(sql_handle) AS s2
+ORDER BY TEXT

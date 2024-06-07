@@ -1,0 +1,64 @@
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+-- =============================================
+-- Author:		AAA_kouyama
+-- Create date: 2024/05/09
+-- Description:	インデックス再構築用ツール
+-- =============================================
+CREATE PROCEDURE [dbo].[Tool_IndexRebuild]
+AS
+BEGIN
+	BEGIN TRY
+		--変数とカーソルの宣言
+		DECLARE @Index_Name NVARCHAR(MAX)
+		DECLARE @Table_Name NVARCHAR(MAX)
+		DECLARE @Rebuilded_Indexs NVARCHAR(MAX)
+
+		DECLARE Index_Target CURSOR FOR
+		SELECT
+		OBJECT_NAME(IDXPS.object_id) AS 'Table_Name',
+		IDX.name AS 'Index_Name'
+		FROM sys.dm_db_index_physical_stats (DB_ID(),null,null,null,null) AS IDXPS
+		LEFT OUTER JOIN  sys.indexes AS IDX
+		ON IDXPS.object_id = IDX.object_id  AND
+		   IDXPS.index_id = IDX.index_id
+		WHERE IDX.index_id > 0 
+		AND IDXPS.avg_fragmentation_in_percent > 50
+		ORDER BY
+		IDXPS.avg_fragmentation_in_percent DESC
+
+		--初期化
+		SET NOCOUNT ON;
+		SET @Rebuilded_Indexs = ''
+
+		OPEN Index_Target
+		FETCH NEXT FROM Index_Target
+		INTO @Table_Name, @Index_Name
+
+		WHILE @@FETCH_STATUS = 0
+		BEGIN
+			PRINT 'Rebuilding Index: ' + @Index_Name + ' on table: ' + @Table_Name
+			EXEC('ALTER INDEX ' + @Index_Name + ' ON ' + @Table_Name + ' REBUILD')
+			SET @Rebuilded_Indexs = @Rebuilded_Indexs + @Index_Name + ',' 
+			FETCH NEXT FROM Index_Target
+			INTO @Table_Name, @Index_Name
+		END
+
+		CLOSE Index_Target
+		DEALLOCATE Index_Target
+		--データベースメールの構成を行うとメールが飛びます
+		--https://www.dbsheetclient.jp/blog/?p=1741
+		EXEC msdb.dbo.sp_send_dbmail
+		@profile_name = 'AAA',
+		@recipients = 'kouyama-tsuy@aeonpeople.biz',
+		@body = @Rebuilded_Indexs,
+		@subject = 'Index再構築' ;
+
+	END TRY
+	BEGIN CATCH
+		RAISERROR('失敗しました。',1,1)
+		RETURN -1
+	END CATCH
+END

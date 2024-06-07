@@ -1,0 +1,29 @@
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+-- =============================================
+-- Author:		AAA_kouyama
+-- Create date: 2024/05/10
+-- Description:	期間指定の高負荷SQL特定用ツール
+-- =============================================
+CREATE PROCEDURE Tool_HighLoad_SQL (
+	@start_datetime datetime,
+	@end_datetime datetime)
+AS
+BEGIN
+	SELECT TOP 100 
+		total_worker_time/execution_count AS [Avg CPU Time],  
+		SUBSTRING(st.text, (qs.statement_start_offset/2)+1,   
+			((CASE qs.statement_end_offset  
+			  WHEN -1 THEN DATALENGTH(st.text)  
+			  ELSE qs.statement_end_offset  
+			  END - qs.statement_start_offset)/2) + 1) AS statement_text,
+		DB_NAME(st.dbid) AS DatabaseName
+		FROM sys.dm_exec_query_stats AS qs
+		CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st  
+		where last_execution_time between @start_datetime and @end_datetime
+		ORDER BY total_worker_time/execution_count DESC; 
+
+return END
+GO
